@@ -315,6 +315,15 @@ def window_setup(cols):
     window.bind("<Configure>", "Event")
     return window
 
+crop_list = os.listdir(crop_dir)
+img_dict = {}
+if os.path.exists(img_cache):
+    with open(img_cache, "r") as fp:
+        img_dict = json.load(fp)
+if len(img_dict.keys()) < len(crop_list):
+    img_dict = cache_previews(img_cache, crop_dir, img_dict)
+img_dict = cropper(image_dir, img_dict)
+
 if os.path.exists(print_json):
     with open(print_json, "r") as fp:
         print_dict = json.load(fp)
@@ -339,15 +348,6 @@ else:
     for img in os.listdir(crop_dir):
         print_dict["cards"][img] = 1
 
-crop_list = os.listdir(crop_dir)
-img_dict = {}
-if os.path.exists(img_cache):
-    with open(img_cache, "r") as fp:
-        img_dict = json.load(fp)
-if len(img_dict.keys()) < len(crop_list):
-    img_dict = cache_previews(img_cache, crop_dir, img_dict)
-
-img_dict = cropper(image_dir, img_dict)
 window = window_setup(print_dict["columns"])
 old_size = window.size
 for k in window.key_dict.keys():
