@@ -39,22 +39,6 @@ for folder in [image_dir, crop_dir]:
     if not os.path.exists(folder):
         os.mkdir(folder)
 
-def cache_previews(file, folder):
-    data = {}
-    for f in os.listdir(folder):
-        fn = os.path.join(folder, f)
-        with Image.open(fn) as im:
-            w, h = im.size
-            r = 248 / w
-        data[f] = (
-            str(to_bytes(fn, (round(w * r), round(h * r))))
-            if f not in data
-            else data[f]
-        )
-    with open(file, "w") as fp:
-        json.dump(data, fp, ensure_ascii=False)
-    return data
-
 
 def grey_out(main_window):
     the_grey = sg.Window(
@@ -190,6 +174,23 @@ def to_bytes(file_or_bytes, resize=None):
     return bio.getvalue()
 
 
+def cache_previews(file, folder, data={}):
+    for f in os.listdir(folder):
+        if f in data.keys(): continue
+        fn = os.path.join(folder, f)
+        with Image.open(fn) as im:
+            w, h = im.size
+            r = 248 / w
+        data[f] = (
+            str(to_bytes(fn, (round(w * r), round(h * r))))
+            if f not in data
+            else data[f]
+        )
+    with open(file, "w") as fp:
+        json.dump(data, fp, ensure_ascii=False)
+    return data
+
+
 def img_frames_refresh(max_cols):
     frame_list = []
     for cardname, number in print_dict["cards"].items():
@@ -205,7 +206,6 @@ def img_frames_refresh(max_cols):
             sg.Push(),
             sg.Image(
                 data=idata,
-                background_color="#00FFCC",
                 key=f"CRD:{cardname}",
                 enable_events=True,
             ),
@@ -231,7 +231,7 @@ def img_frames_refresh(max_cols):
             sg.Push(),
         ]
         frame_layout = [[sg.Sizer(v_pixels=5)], img_layout, button_layout]
-        title = cardname if len(cardname) < 30 else cardname[:30]+"..."+cardname[cardname.rfind(".")-1:]
+        title = cardname if len(cardname) < 35 else cardname[:28]+"..."+cardname[cardname.rfind(".")-1:]
         frame_list += [
             sg.Frame(
                 title=f" {title} ",
@@ -318,11 +318,13 @@ def window_setup(cols):
 if os.path.exists(print_json):
     with open(print_json, "r") as fp:
         print_dict = json.load(fp)
+    # Check that we have all our cards accounted for
     if len(print_dict["cards"].items()) < len(os.listdir(crop_dir)):
         for img in os.listdir(crop_dir):
             if img not in print_dict["cards"].keys():
                 print_dict["cards"][img] = 1
 else:
+    # Initialize our values
     print_dict = {
         "cards": {},
         # program window settings
@@ -337,12 +339,13 @@ else:
     for img in os.listdir(crop_dir):
         print_dict["cards"][img] = 1
 
+crop_list = os.listdir(crop_dir)
 img_dict = {}
 if os.path.exists(img_cache):
     with open(img_cache, "r") as fp:
         img_dict = json.load(fp)
-if len(img_dict.items()) <= 1:
-    img_dict = cache_previews(img_cache, crop_dir)
+if len(img_dict.keys()) < len(crop_list):
+    img_dict = cache_previews(img_cache, crop_dir, img_dict)
 
 img_dict = cropper(image_dir, img_dict)
 window = window_setup(print_dict["columns"])
@@ -388,11 +391,14 @@ while True:
             json.dump(print_dict, fp)
 
     if "CROP" in event:
-        window, img_dict = cropper(image_dir, window, img_dict)
+        img_dict = cropper(image_dir, img_dict)
         for img in os.listdir(crop_dir):
             if img not in print_dict["cards"].keys():
                 print(f"{img} found and added to list.")
                 print_dict["cards"][img]=1
+        window.close()
+        window = window_setup(print_dict["columns"])
+        window.refresh()
         for k in window.key_dict.keys():
             if "CRD:" in str(k):
                 window[k].bind("<Button-1>", "-LEFT")
@@ -409,6 +415,7 @@ while True:
         grey_window.close()
         window.enable()
         window.bring_to_front()
+        window.refresh()
 
     if event and print_dict["size"] != window.size:
         print_dict["size"] = window.size
