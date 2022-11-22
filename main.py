@@ -13,15 +13,6 @@ from reportlab.lib.pagesizes import letter, A4, legal
 sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
 
-cwd = os.path.dirname(__file__)
-image_dir = os.path.join(cwd, "images")
-crop_dir = os.path.join(image_dir, "crop")
-print_json = os.path.join(cwd, "print.json")
-img_cache = os.path.join(cwd, "img.cache")
-for folder in [image_dir, crop_dir]:
-    if not os.path.exists(folder):
-        os.mkdir(folder)
-
 
 def popup(middle_text):
     return sg.Window(
@@ -36,6 +27,35 @@ def popup(middle_text):
     )
 
 
+loading_window = popup("Loading...")
+loading_window.refresh()
+
+cwd = os.path.dirname(__file__)
+image_dir = os.path.join(cwd, "images")
+crop_dir = os.path.join(image_dir, "crop")
+print_json = os.path.join(cwd, "print.json")
+img_cache = os.path.join(cwd, "img.cache")
+for folder in [image_dir, crop_dir]:
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+
+def cache_previews(file, folder):
+    data = {}
+    for f in os.listdir(folder):
+        fn = os.path.join(folder, f)
+        with Image.open(fn) as im:
+            w, h = im.size
+            r = 248 / w
+        data[f] = (
+            str(to_bytes(fn, (round(w * r), round(h * r))))
+            if f not in data
+            else data[f]
+        )
+    with open(file, "w") as fp:
+        json.dump(data, fp, ensure_ascii=False)
+    return data
+
+
 def grey_out(main_window):
     the_grey = sg.Window(
         title="",
@@ -47,15 +67,9 @@ def grey_out(main_window):
         location=main_window.current_location(),
         finalize=True,
     )
-    print(main_window.current_location())
-    print(the_grey.current_location())
     the_grey.disable()
     the_grey.refresh()
     return the_grey
-
-
-loading_window = popup("Loading...")
-loading_window.refresh()
 
 
 def draw_cross(can, x, y, c=6, s=(72 / 800) * 6):
@@ -123,7 +137,7 @@ def pdf_gen(p_dict, size):
         print(e)
 
 
-def cropper(folder, old_window):
+def cropper(folder, img_dict):
     i = 0
     if not os.path.exists(crop_dir):
         os.mkdir(crop_dir)
@@ -143,14 +157,7 @@ def cropper(folder, old_window):
             )
             crop_im = im.crop((c, c, w - c, h - c))
             crop_im.save(os.path.join(crop_dir, img_file), quality=98)
-    if i>0:
-        print("crop")
-        window = window_setup(print_dict["columns"])
-        old_window.close()
-        return window
-    print("no crop")
-    return old_window
-    
+    return cache_previews(img_cache, crop_dir) if i>0 else img_dict
 
 
 def to_bytes(file_or_bytes, resize=None):
@@ -181,23 +188,6 @@ def to_bytes(file_or_bytes, resize=None):
     img.save(bio, format="PNG")
     del img
     return bio.getvalue()
-
-
-def cache_previews(file, folder):
-    data = {}
-    for f in os.listdir(folder):
-        fn = os.path.join(folder, f)
-        with Image.open(fn) as im:
-            w, h = im.size
-            r = 248 / w
-        data[f] = (
-            str(to_bytes(fn, (round(w * r), round(h * r))))
-            if f not in data
-            else data[f]
-        )
-    with open(file, "w") as fp:
-        json.dump(data, fp, ensure_ascii=False)
-    return data
 
 
 def img_frames_refresh(max_cols):
@@ -241,9 +231,10 @@ def img_frames_refresh(max_cols):
             sg.Push(),
         ]
         frame_layout = [[sg.Sizer(v_pixels=5)], img_layout, button_layout]
+        title = cardname if len(cardname) < 30 else cardname[:30]+"..."+cardname[cardname.rfind(".")-1:]
         frame_list += [
             sg.Frame(
-                title=f" {cardname} ",
+                title=f" {title} ",
                 layout=frame_layout,
                 title_location=sg.TITLE_LOCATION_BOTTOM,
                 vertical_alignment="center",
@@ -257,29 +248,6 @@ def img_frames_refresh(max_cols):
     return sg.Column(
         layout=new_frames, scrollable=True, vertical_scroll_only=True, expand_y=True
     )
-
-
-if not os.path.exists(print_json):
-    print_dict = {
-        "cards": {},
-        "size": (1480, 920),
-        "columns": 5,
-        "pagesize": "Letter",
-        "page_sizes": ["Letter", "A4", "Legal"],
-        "orient": "Portrait",
-        "filename": "_printme",
-    }
-    for img in os.listdir(crop_dir):
-        print_dict["cards"][img] = 1
-else:
-    with open(print_json, "r") as fp:
-        print_dict = json.load(fp)
-
-if not os.path.exists(img_cache):
-    img_dict = cache_previews(img_cache, crop_dir)
-else:
-    with open(img_cache, "r") as fp:
-        img_dict = json.load(fp)
 
 
 def window_setup(cols):
@@ -347,7 +315,36 @@ def window_setup(cols):
     window.bind("<Configure>", "Event")
     return window
 
+if os.path.exists(print_json):
+    with open(print_json, "r") as fp:
+        print_dict = json.load(fp)
+    if len(print_dict["cards"].items()) < len(os.listdir(crop_dir)):
+        for img in os.listdir(crop_dir):
+            if img not in print_dict["cards"].keys():
+                print_dict["cards"][img] = 1
+else:
+    print_dict = {
+        "cards": {},
+        # program window settings
+        "size": (1480, 920),
+        "columns": 5,
+        # pdf generation options
+        "pagesize": "Letter",
+        "page_sizes": ["Letter", "A4", "Legal"],
+        "orient": "Portrait",
+        "filename": "_printme",
+    }
+    for img in os.listdir(crop_dir):
+        print_dict["cards"][img] = 1
 
+img_dict = {}
+if os.path.exists(img_cache):
+    with open(img_cache, "r") as fp:
+        img_dict = json.load(fp)
+if len(img_dict.items()) <= 1:
+    img_dict = cache_previews(img_cache, crop_dir)
+
+img_dict = cropper(image_dir, img_dict)
 window = window_setup(print_dict["columns"])
 old_size = window.size
 for k in window.key_dict.keys():
@@ -391,7 +388,7 @@ while True:
             json.dump(print_dict, fp)
 
     if "CROP" in event:
-        window = cropper(image_dir, window)
+        window, img_dict = cropper(image_dir, window, img_dict)
         for img in os.listdir(crop_dir):
             if img not in print_dict["cards"].keys():
                 print(f"{img} found and added to list.")
