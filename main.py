@@ -1,18 +1,19 @@
 import os
 import math
 import json
+import time
 import base64
 import subprocess
+import configparser
 import io
 import re
-from PIL import Image
+from PIL import Image, ImageFilter
 import PySimpleGUI as sg
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4, legal
 
 sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
-
 
 def popup(middle_text):
     return sg.Window(
@@ -39,16 +40,20 @@ for folder in [image_dir, crop_dir]:
     if not os.path.exists(folder):
         os.mkdir(folder)
 
+config = configparser.ConfigParser()
+config.read(os.path.join(cwd, "config.ini"))
+cfg = config["DEFAULT"]
 
 def grey_out(main_window):
     the_grey = sg.Window(
         title="",
         layout=[[]],
-        alpha_channel=0.5,
-        background_color="#666666",
+        alpha_channel=0.6,
+        titlebar_background_color="#888888",
+        background_color="#888888",
         size=main_window.size,
         disable_close=True,
-        location=main_window.current_location(),
+        location=main_window.current_location(more_accurate=True),
         finalize=True,
     )
     the_grey.disable()
@@ -56,7 +61,7 @@ def grey_out(main_window):
     return the_grey
 
 
-def draw_cross(can, x, y, c=6, s=(72 / 800) * 6):
+def draw_cross(can, x, y, c=6, s=1):
     dash = [s, s]
     can.setLineWidth(s)
     can.setDash(dash)
@@ -85,31 +90,31 @@ def pdf_gen(p_dict, size):
         else "_printme.pdf",
     )
     pages = canvas.Canvas(pdf_fp, pagesize=size)
-    cols, rows = math.floor(pw / w), math.floor(ph / h)
+    cols, rows = int(pw // w), int(ph // h)
     rx, ry = round((pw - (w * cols)) / 2), round((ph - (h * rows)) / 2)
-    total_cards = sum(p_dict["cards"].values())
-    i = 0
+    total_cards = sum(img_dict.values())
     pbreak = cols * rows
+    i = 0
     for img in img_dict.keys():
         img_path = os.path.join(crop_dir, img)
         for n in range(img_dict[img]):
-            if i % pbreak == 0 and i > 0:
+            p, j = divmod(i, pbreak)
+            y, x = divmod(j, cols)
+            if j == 0 and i > 0:
                 pages.showPage()
             pages.drawImage(
                 img_path,
-                (i % cols) * w + rx,
-                math.floor((i % pbreak) / cols) * h + ry,
+                x * w + rx,
+                y * h + ry,
                 w,
                 h,
             )
-            if i % pbreak == pbreak - 1 or i == total_cards - 1:
+            if j == pbreak - 1 or i == total_cards - 1:
                 # Draw lines
                 cross = 6
-                [
-                    draw_cross(pages, rx + w * cx, ry + h * cy)
-                    for cx in range(cols + 1)
-                    for cy in range(rows + 1)
-                ]
+                for cy in range(rows + 1):
+                    for cx in range(cols + 1):
+                        draw_cross(pages, rx + w * cx, ry + h * cy)
             i += 1
     saving_window = popup("Saving...")
     saving_window.refresh()
@@ -122,6 +127,13 @@ def pdf_gen(p_dict, size):
 
 
 def cropper(folder, img_dict):
+    if cfg.getboolean("Vibrance.Bump"):
+        with open(os.path.join(cwd, "vibrance.CUBE")) as f:
+            lut_raw = f.read().splitlines()[11:]
+        lsize = round(len(lut_raw) ** (1 / 3))
+        row2val = lambda row: tuple([float(val) for val in row.split(" ")])
+        lut_table = [row2val(row) for row in lut_raw]
+        lut = ImageFilter.Color3DLUT(lsize, lut_table)
     i = 0
     if not os.path.exists(crop_dir):
         os.mkdir(crop_dir)
@@ -136,10 +148,22 @@ def cropper(folder, img_dict):
             i += 1
             w, h = im.size
             c = round(0.12 * min(w / 2.72, h / 3.7))
+            dpi = c*(1/0.12)
             print(
-                f"{img_file} - DPI calculated: {c*(1/0.12)}, cropping {c} pixels around frame"
+                f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
             )
             crop_im = im.crop((c, c, w - c, h - c))
+            if dpi > cfg.getint("Max.DPI"):
+                crop_im = crop_im.resize(
+                    (
+                        int(round(crop_im.size[0]*cfg.getint("Max.DPI")/dpi)),
+                        int(round(crop_im.size[1]*cfg.getint("Max.DPI")/dpi)),
+                    ),
+                    Image.Resampling.BICUBIC,
+                )
+                crop_im = crop_im.filter(ImageFilter.UnsharpMask(1, 20, 8))
+            if cfg.getboolean("Vibrance.Bump"):
+                crop_im = crop_im.filter(lut)
             crop_im.save(os.path.join(crop_dir, img_file), quality=98)
     return cache_previews(img_cache, crop_dir) if i>0 else img_dict
 
@@ -253,6 +277,7 @@ def img_frames_refresh(max_cols):
 def window_setup(cols):
     column_layout = [
         [
+            sg.Button(button_text=" Config ", size=(10, 1), key="CONFIG"),
             sg.Text("Paper Size:"),
             *[
                 sg.Radio(
@@ -386,18 +411,33 @@ while True:
     if "FILENAME" in event:
         print_dict["filename"] = window["FILENAME"].get()
 
+    if "CONFIG" in event:
+        subprocess.Popen(["config.ini"], shell=True)
+
     if "SAVE" in event:
         with open(print_json, "w") as fp:
             json.dump(print_dict, fp)
 
+    if event in ["CROP", "RENDER"]:
+        config.read(os.path.join(cwd, "config.ini"))
+        cfg = config["DEFAULT"]
+
     if "CROP" in event:
+        oldwindow = window
+        oldwindow.disable()
+        grey_window = grey_out(window)
+
         img_dict = cropper(image_dir, img_dict)
         for img in os.listdir(crop_dir):
             if img not in print_dict["cards"].keys():
                 print(f"{img} found and added to list.")
-                print_dict["cards"][img]=1
-        window.close()
+                print_dict["cards"][img] = 1
+                
         window = window_setup(print_dict["columns"])
+        window.enable()
+        window.bring_to_front()
+        oldwindow.close()
+        grey_window.close()
         window.refresh()
         for k in window.key_dict.keys():
             if "CRD:" in str(k):
