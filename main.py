@@ -7,6 +7,8 @@ import subprocess
 import configparser
 import io
 import re
+import cv2
+import numpy
 from PIL import Image, ImageFilter
 import PySimpleGUI as sg
 from reportlab.pdfgen import canvas
@@ -144,27 +146,31 @@ def cropper(folder, img_dict):
             or os.path.exists(os.path.join(folder, "crop", img_file))
         ):
             continue
-        with Image.open(os.path.join(folder, img_file)) as im:
-            i += 1
-            w, h = im.size
-            c = round(0.12 * min(w / 2.72, h / 3.7))
-            dpi = c*(1/0.12)
-            print(
-                f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
+        im = cv2.imread(os.path.join(folder, img_file))
+        i += 1
+        (h, w, _) = im.shape
+        c = round(0.12 * min(w / 2.72, h / 3.7))
+        dpi = c*(1/0.12)
+        print(
+            f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
+        )
+        crop_im = im[c:h - c, c:w - c]
+        (h, w, _) = crop_im.shape
+        max_dpi = cfg.getint("Max.DPI")
+        if dpi > max_dpi:
+            new_size = (
+                int(round(w*cfg.getint("Max.DPI")/dpi)),
+                int(round(h*cfg.getint("Max.DPI")/dpi)),
             )
-            crop_im = im.crop((c, c, w - c, h - c))
-            if dpi > cfg.getint("Max.DPI"):
-                crop_im = crop_im.resize(
-                    (
-                        int(round(crop_im.size[0]*cfg.getint("Max.DPI")/dpi)),
-                        int(round(crop_im.size[1]*cfg.getint("Max.DPI")/dpi)),
-                    ),
-                    Image.Resampling.BICUBIC,
-                )
-                crop_im = crop_im.filter(ImageFilter.UnsharpMask(1, 20, 8))
-            if cfg.getboolean("Vibrance.Bump"):
-                crop_im = crop_im.filter(lut)
-            crop_im.save(os.path.join(crop_dir, img_file), quality=98)
+            print(f"{img_file} - Exceeds maximum DPI {max_dpi}, resizing to {new_size[0]}x{new_size[1]}")
+            crop_im = cv2.resize(
+                crop_im,
+                new_size,
+                interpolation=cv2.INTER_CUBIC)
+            crop_im = numpy.array(Image.fromarray(crop_im).filter(ImageFilter.UnsharpMask(1, 20, 8)))
+        if cfg.getboolean("Vibrance.Bump"):
+            crop_im = numpy.array(Image.fromarray(crop_im).filter(lut))
+        cv2.imwrite(os.path.join(crop_dir, img_file), crop_im)
     return cache_previews(img_cache, crop_dir) if i>0 else img_dict
 
 
@@ -177,23 +183,31 @@ def to_bytes(file_or_bytes, resize=None):
     :return: (bytes) a byte-string object
     """
     if isinstance(file_or_bytes, str):
-        img = Image.open(file_or_bytes)
+        img = cv2.imread(file_or_bytes)
     else:
         try:
-            img = Image.open(io.BytesIO(base64.b64decode(file_or_bytes)))
+            dataBytesIO = io.BytesIO(base64.b64decode(file_or_bytes))
+            buffer = dataBytesIO.getbuffer()
+            img = cv2.imdecode(numpy.frombuffer(buffer, numpy.uint8), -1)
         except Exception as e:
             dataBytesIO = io.BytesIO(file_or_bytes)
-            img = Image.open(dataBytesIO)
+            buffer = dataBytesIO.getbuffer()
+            img = cv2.imdecode(numpy.frombuffer(buffer, numpy.uint8), -1)
 
-    cur_width, cur_height = img.size
+    (cur_height, cur_width, _) = img.shape
     if resize:
         new_width, new_height = resize
         scale = min(new_height / cur_height, new_width / cur_width)
-        img = img.resize(
-            (int(cur_width * scale), int(cur_height * scale)), Image.Resampling.LANCZOS
+        img = cv2.resize(
+            img,
+            (
+                int(cur_width * scale), 
+                int(cur_height * scale)
+            ),
+            interpolation=cv2.INTER_AREA
         )
-    bio = io.BytesIO()
-    img.save(bio, format="PNG")
+    _, buffer = cv2.imencode(".png", img)
+    bio = io.BytesIO(buffer)
     del img
     return bio.getvalue()
 
@@ -202,9 +216,10 @@ def cache_previews(file, folder, data={}):
     for f in os.listdir(folder):
         if f in data.keys(): continue
         fn = os.path.join(folder, f)
-        with Image.open(fn) as im:
-            w, h = im.size
-            r = 248 / w
+        im = cv2.imread(fn)
+        (h, w, _) = im.shape
+        del im
+        r = 248 / w
         data[f] = (
             str(to_bytes(fn, (round(w * r), round(h * r))))
             if f not in data
