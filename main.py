@@ -46,6 +46,17 @@ config = configparser.ConfigParser()
 config.read(os.path.join(cwd, "config.ini"))
 cfg = config["DEFAULT"]
 
+def load_vibrance_cube():
+    with open(os.path.join(cwd, "vibrance.CUBE")) as f:
+        lut_raw = f.read().splitlines()[11:]
+    lsize = round(len(lut_raw) ** (1 / 3))
+    row2val = lambda row: tuple([float(val) for val in row.split(" ")])
+    lut_table = [row2val(row) for row in lut_raw]
+    lut = ImageFilter.Color3DLUT(lsize, lut_table)
+    return lut
+vibrance_cube = load_vibrance_cube()
+del load_vibrance_cube
+
 def grey_out(main_window):
     the_grey = sg.Window(
         title="",
@@ -129,13 +140,6 @@ def pdf_gen(p_dict, size):
 
 
 def cropper(folder, img_dict):
-    if cfg.getboolean("Vibrance.Bump"):
-        with open(os.path.join(cwd, "vibrance.CUBE")) as f:
-            lut_raw = f.read().splitlines()[11:]
-        lsize = round(len(lut_raw) ** (1 / 3))
-        row2val = lambda row: tuple([float(val) for val in row.split(" ")])
-        lut_table = [row2val(row) for row in lut_raw]
-        lut = ImageFilter.Color3DLUT(lsize, lut_table)
     i = 0
     if not os.path.exists(crop_dir):
         os.mkdir(crop_dir)
@@ -169,7 +173,7 @@ def cropper(folder, img_dict):
                 interpolation=cv2.INTER_CUBIC)
             crop_im = numpy.array(Image.fromarray(crop_im).filter(ImageFilter.UnsharpMask(1, 20, 8)))
         if cfg.getboolean("Vibrance.Bump"):
-            crop_im = numpy.array(Image.fromarray(crop_im).filter(lut))
+            crop_im = numpy.array(Image.fromarray(crop_im).filter(vibrance_cube))
         cv2.imwrite(os.path.join(crop_dir, img_file), crop_im)
     return cache_previews(img_cache, crop_dir) if i>0 else img_dict
 
