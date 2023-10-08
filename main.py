@@ -13,6 +13,7 @@ from PIL import Image, ImageFilter
 import PySimpleGUI as sg
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4, legal
+from enum import Enum
 
 sw, sh = sg.Window.get_screen_size()
 sg.theme("DarkTeal2")
@@ -46,6 +47,9 @@ config = configparser.ConfigParser()
 config.read(os.path.join(cwd, "config.ini"))
 cfg = config["DEFAULT"]
 
+card_size_with_bleed_inch = (2.72, 3.7)
+card_size_without_bleed_inch = (2.48, 3.46)
+
 def load_vibrance_cube():
     with open(os.path.join(cwd, "vibrance.CUBE")) as f:
         lut_raw = f.read().splitlines()[11:]
@@ -56,6 +60,27 @@ def load_vibrance_cube():
     return lut
 vibrance_cube = load_vibrance_cube()
 del load_vibrance_cube
+
+def list_files(folder):
+    return [f for f in os.listdir(folder) if os.path.isfile(os.path.join(folder, f))]
+
+def mm_to_inch(mm):
+    return mm * 0.0393701
+
+def inch_to_mm(inch):
+    return inch / 0.0393701
+
+def is_number_string(str):
+    return str.replace('.', '', 1).isdigit()
+
+def cap_bleed_edge_str(bleed_edge):
+    if is_number_string(bleed_edge):
+        bleed_edge_num = float(bleed_edge)
+        max_bleed_edge = inch_to_mm(0.12)
+        if bleed_edge_num > max_bleed_edge:
+            bleed_edge_num = min(bleed_edge_num, max_bleed_edge)
+            bleed_edge = "{:.2f}".format(bleed_edge_num)
+    return bleed_edge
 
 def grey_out(main_window):
     the_grey = sg.Window(
@@ -72,6 +97,21 @@ def grey_out(main_window):
     the_grey.disable()
     the_grey.refresh()
     return the_grey
+
+class CrossSegment(Enum):
+    TopLeft = (1, -1)
+    TopRight = (-1, -1)
+    BottomRight = (-1, 1)
+    BottomLeft = (1, 1)
+
+def draw_half_cross(can, x, y, segment, c=6, s=1):
+    (dx, dy) = segment.value
+    dash = [s, s]
+    can.setLineWidth(s)
+    can.setDash(dash)
+    can.setStrokeColorRGB(255, 255, 255)
+    can.line(x, y, x, y + dy * c)
+    can.line(x, y, x + dx * c, y)
 
 
 def draw_cross(can, x, y, c=6, s=1):
@@ -92,7 +132,17 @@ def draw_cross(can, x, y, c=6, s=1):
 def pdf_gen(p_dict, size):
     rgx = re.compile(r"\W")
     img_dict = p_dict["cards"]
-    w, h = 2.48 * 72, 3.46 * 72
+    bleed_edge = float(p_dict["bleed_edge"])
+    has_bleed_edge = bleed_edge > 0
+    if has_bleed_edge:
+        b = mm_to_inch(bleed_edge)
+        img_dir = os.path.join(crop_dir, str(bleed_edge).replace(".", "p"))
+    else:
+        b = 0
+        img_dir = crop_dir
+    (w, h) = card_size_without_bleed_inch
+    w, h = (w + 2 * b) * 72, (h + 2 * b) * 72
+    b = b * 72
     rotate = bool(p_dict["orient"] == "Landscape")
     size = tuple(size[::-1]) if rotate else size
     pw, ph = size
@@ -109,7 +159,7 @@ def pdf_gen(p_dict, size):
     pbreak = cols * rows
     i = 0
     for img in img_dict.keys():
-        img_path = os.path.join(crop_dir, img)
+        img_path = os.path.join(img_dir, img)
         for n in range(img_dict[img]):
             p, j = divmod(i, pbreak)
             y, x = divmod(j, cols)
@@ -122,9 +172,13 @@ def pdf_gen(p_dict, size):
                 w,
                 h,
             )
-            if j == pbreak - 1 or i == total_cards - 1:
+            if has_bleed_edge:
+                draw_half_cross(pages, (x + 0) * w + b + rx, (y + 0) * h + b + ry, CrossSegment.BottomLeft)
+                draw_half_cross(pages, (x + 1) * w - b + rx, (y + 0) * h + b + ry, CrossSegment.BottomRight)
+                draw_half_cross(pages, (x + 1) * w - b + rx, (y + 1) * h - b + ry, CrossSegment.TopRight)
+                draw_half_cross(pages, (x + 0) * w + b + rx, (y + 1) * h - b + ry, CrossSegment.TopLeft)
+            elif j == pbreak - 1 or i == total_cards - 1:
                 # Draw lines
-                cross = 6
                 for cy in range(rows + 1):
                     for cx in range(cols + 1):
                         draw_cross(pages, rx + w * cx, ry + h * cy)
@@ -138,26 +192,59 @@ def pdf_gen(p_dict, size):
     except Exception as e:
         print(e)
 
+def need_run_cropper(folder, bleed_edge):
+    has_bleed_edge = bleed_edge is not None and bleed_edge > 0
 
-def cropper(folder, img_dict):
+    output_dir = crop_dir
+    if has_bleed_edge:
+        output_dir = os.path.join(output_dir, str(bleed_edge).replace(".", "p"))
+
+    if not os.path.exists(output_dir):
+        return True
+
+    for img_file in list_files(folder):
+        if (
+            os.path.splitext(img_file)[1] in [".gif", ".jpg", ".jpeg", ".png"]
+            and not os.path.exists(os.path.join(output_dir, img_file))
+        ):
+            return True
+    
+    return False
+
+def cropper(folder, img_dict, bleed_edge):
+    has_bleed_edge = bleed_edge is not None and bleed_edge > 0
+    if has_bleed_edge:
+        img_dict = cropper(folder, img_dict, None)
+
     i = 0
-    if not os.path.exists(crop_dir):
-        os.mkdir(crop_dir)
-    for img_file in os.listdir(folder):
+    output_dir = crop_dir
+    if has_bleed_edge:
+        output_dir = os.path.join(output_dir, str(bleed_edge).replace(".", "p"))
+    if not os.path.exists(output_dir):
+        os.mkdir(output_dir)
+    for img_file in list_files(folder):
         if (
             os.path.splitext(img_file)[1] not in [".gif", ".jpg", ".jpeg", ".png"]
-            or os.path.isdir(img_file)
-            or os.path.exists(os.path.join(folder, "crop", img_file))
+            or os.path.exists(os.path.join(output_dir, img_file))
         ):
             continue
         im = cv2.imread(os.path.join(folder, img_file))
         i += 1
         (h, w, _) = im.shape
-        c = round(0.12 * min(w / 2.72, h / 3.7))
+        (bw, bh) = card_size_with_bleed_inch
+        c = round(0.12 * min(w / bw, h / bh))
         dpi = c*(1/0.12)
-        print(
-            f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
-        )
+        if has_bleed_edge:
+            bleed_edge_inch = mm_to_inch(bleed_edge)
+            bleed_edge_pixel = dpi * bleed_edge_inch
+            c = round(0.12 * min(w / bw, h / bh) - bleed_edge_pixel)
+            print(
+                f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame (adjusted for bleed edge)"
+            )
+        else:
+            print(
+                f"{img_file} - DPI calculated: {dpi}, cropping {c} pixels around frame"
+            )
         crop_im = im[c:h - c, c:w - c]
         (h, w, _) = crop_im.shape
         max_dpi = cfg.getint("Max.DPI")
@@ -174,8 +261,12 @@ def cropper(folder, img_dict):
             crop_im = numpy.array(Image.fromarray(crop_im).filter(ImageFilter.UnsharpMask(1, 20, 8)))
         if cfg.getboolean("Vibrance.Bump"):
             crop_im = numpy.array(Image.fromarray(crop_im).filter(vibrance_cube))
-        cv2.imwrite(os.path.join(crop_dir, img_file), crop_im)
-    return cache_previews(img_cache, crop_dir) if i>0 else img_dict
+        cv2.imwrite(os.path.join(output_dir, img_file), crop_im)
+
+    if i > 0 and not has_bleed_edge:
+        return cache_previews(img_cache, output_dir)
+    else:
+        return img_dict 
 
 
 def to_bytes(file_or_bytes, resize=None):
@@ -217,8 +308,10 @@ def to_bytes(file_or_bytes, resize=None):
 
 
 def cache_previews(file, folder, data={}):
-    for f in os.listdir(folder):
-        if f in data.keys(): continue
+    for f in list_files(folder):
+        if f in data.keys():
+            continue
+
         fn = os.path.join(folder, f)
         im = cv2.imread(fn)
         (h, w, _) = im.shape
@@ -313,12 +406,10 @@ def window_setup(cols):
                 key="ORIENT",
                 enable_events=True
             ),
-            sg.Radio(
-                "Landscape",
-                "ORI",
-                default=bool(print_dict["orient"] == "Landscape"),
-                key="ORIENT:Landscape",
-                enable_events=True,
+            sg.VerticalSeparator(),
+            sg.Text("Bleed Edge (mm):"),
+            sg.Input(
+                print_dict["bleed_edge"], size=(10, 1), key="BLEED", enable_events=True
             ),
             sg.VerticalSeparator(),
             sg.Text("PDF Filename:"),
@@ -360,26 +451,64 @@ def window_setup(cols):
     window['PAPER'].TKStringVar.trace("w", make_combo_callback("PAPER"))
     window['ORIENT'].TKStringVar.trace("w", make_combo_callback("ORIENT"))
 
+    def reset_button(button):
+        button.set_tooltip(None)
+        button.update(disabled=False)
+
+    def crop_callback(var, index, mode):
+        reset_button(window["RENDER"])
+    window['CROP'].TKStringVar.trace("w", crop_callback)
+
+    def bleed_callback(var, index, mode):
+        bleed_input = window["BLEED"]
+        bleed_edge = bleed_input.TKStringVar.get()
+        bleed_edge = cap_bleed_edge_str(bleed_edge)
+        if bleed_edge != bleed_input.TKStringVar.get():
+            bleed_input.update(bleed_edge)
+
+        if is_number_string(bleed_edge):
+            bleed_edge_num = float(bleed_edge)
+            if bleed_edge != print_dict["bleed_edge"] and need_run_cropper(image_dir, bleed_edge_num):
+                render_button = window["RENDER"]
+                render_button.set_tooltip("Bleed edge changed, re-run cropper first...")
+                render_button.update(disabled=True)
+            else:
+                reset_button(window["RENDER"])
+                reset_button(window["CROP"])
+        else:
+            def set_invalid_bleed_edge_tooltip(button):
+                button.set_tooltip("Bleed edge not a valid number...")
+                button.update(disabled=True)
+            set_invalid_bleed_edge_tooltip(window["RENDER"])
+            set_invalid_bleed_edge_tooltip(window["CROP"])
+    window['BLEED'].TKStringVar.trace("w", bleed_callback)
+
     window.bind("<Configure>", "Event")
     return window
 
-crop_list = os.listdir(crop_dir)
+crop_list = list_files(crop_dir)
 img_dict = {}
 if os.path.exists(img_cache):
     with open(img_cache, "r") as fp:
         img_dict = json.load(fp)
 if len(img_dict.keys()) < len(crop_list):
     img_dict = cache_previews(img_cache, crop_dir, img_dict)
-img_dict = cropper(image_dir, img_dict)
+img_dict = cropper(image_dir, img_dict, None)
 
 if os.path.exists(print_json):
     with open(print_json, "r") as fp:
         print_dict = json.load(fp)
     # Check that we have all our cards accounted for
-    if len(print_dict["cards"].items()) < len(os.listdir(crop_dir)):
-        for img in os.listdir(crop_dir):
+    if len(print_dict["cards"].items()) < len(list_files(crop_dir)):
+        for img in list_files(crop_dir):
             if img not in print_dict["cards"].keys():
                 print_dict["cards"][img] = 1
+    # Make sure we have a sensible bleed edge
+    bleed_edge = print_dict["bleed_edge"]
+    bleed_edge = cap_bleed_edge_str(bleed_edge)
+    if not is_number_string(bleed_edge):
+        bleed_edge = "0"
+    print_dict["bleed_edge"] = bleed_edge 
 else:
     # Initialize our values
     print_dict = {
@@ -391,10 +520,15 @@ else:
         "pagesize": "Letter",
         "page_sizes": ["Letter", "A4", "Legal"],
         "orient": "Portrait",
+        "bleed_edge": "0",
         "filename": "_printme",
     }
-    for img in os.listdir(crop_dir):
+    for img in list_files(crop_dir):
         print_dict["cards"][img] = 1
+
+bleed_edge = float(print_dict["bleed_edge"])
+if need_run_cropper(image_dir, bleed_edge):
+    cropper(image_dir, img_dict, bleed_edge)
 
 window = window_setup(print_dict["columns"])
 old_size = window.size
@@ -431,6 +565,9 @@ while True:
     if "PAPER" in event:
         print_dict["pagesize"] = values[event]
 
+    if "BLEED" in event:
+        print_dict["bleed_edge"] = window["BLEED"].get()
+
     if "FILENAME" in event:
         print_dict["filename"] = window["FILENAME"].get()
 
@@ -450,8 +587,9 @@ while True:
         oldwindow.disable()
         grey_window = grey_out(window)
 
-        img_dict = cropper(image_dir, img_dict)
-        for img in os.listdir(crop_dir):
+        bleed_edge = float(print_dict["bleed_edge"])
+        img_dict = cropper(image_dir, img_dict, bleed_edge)
+        for img in list_files(crop_dir):
             if img not in print_dict["cards"].keys():
                 print(f"{img} found and added to list.")
                 print_dict["cards"][img] = 1
