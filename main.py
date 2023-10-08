@@ -298,24 +298,20 @@ def window_setup(cols):
         [
             sg.Button(button_text=" Config ", size=(10, 1), key="CONFIG"),
             sg.Text("Paper Size:"),
-            *[
-                sg.Radio(
-                    size,
-                    "PAPER",
-                    default=bool(print_dict["pagesize"] == size),
-                    key=f"PAPER:{size}",
-                    enable_events=True,
-                )
-                for size in print_dict["page_sizes"]
-            ],
+            sg.Combo(
+                print_dict["page_sizes"],
+                default_value=print_dict["pagesize"],
+                readonly=True,
+                key="PAPER",
+                enable_events=True
+            ),
             sg.VerticalSeparator(),
             sg.Text("Orientation:"),
-            sg.Radio(
-                "Portrait",
-                "ORI",
-                default=bool(print_dict["orient"] == "Portrait"),
-                key="ORIENT:Portrait",
-                enable_events=True,
+            sg.Combo(
+                ["Portrait", "Landscape"],
+                default_value=print_dict["orient"],
+                key="ORIENT",
+                enable_events=True
             ),
             sg.Radio(
                 "Landscape",
@@ -356,6 +352,14 @@ def window_setup(cols):
         enable_close_attempted_event=True,
         size=print_dict["size"],
     )
+    
+    def make_combo_callback(key):
+        def combo_callback(var, index, mode):
+            window.write_event_value(key, window[key].TKStringVar.get())
+        return combo_callback
+    window['PAPER'].TKStringVar.trace("w", make_combo_callback("PAPER"))
+    window['ORIENT'].TKStringVar.trace("w", make_combo_callback("ORIENT"))
+
     window.bind("<Configure>", "Event")
     return window
 
@@ -421,11 +425,11 @@ while True:
         print_dict["cards"][name] = num
         window[key].update(str(num))
 
-    if "ORIENT:" in event:
-        print_dict["orient"] = event.replace("ORIENT:", "")
+    if "ORIENT" in event:
+        print_dict["orient"] = values[event]
 
-    if "PAPER:" in event:
-        print_dict["pagesize"] = event.replace("PAPER:", "")
+    if "PAPER" in event:
+        print_dict["pagesize"] = values[event]
 
     if "FILENAME" in event:
         print_dict["filename"] = window["FILENAME"].get()
