@@ -497,14 +497,14 @@ def window_setup(cols):
             bleed_input.update(bleed_edge)
 
         if is_number_string(bleed_edge):
+            reset_button(window["RENDER"])
+            reset_button(window["CROP"])
+
             bleed_edge_num = float(bleed_edge)
             if bleed_edge != print_dict["bleed_edge"] and need_run_cropper(image_dir, bleed_edge_num):
                 render_button = window["RENDER"]
                 render_button.set_tooltip("Bleed edge changed, re-run cropper first...")
                 render_button.update(disabled=True)
-            else:
-                reset_button(window["RENDER"])
-                reset_button(window["CROP"])
         else:
             def set_invalid_bleed_edge_tooltip(button):
                 button.set_tooltip("Bleed edge not a valid number...")
