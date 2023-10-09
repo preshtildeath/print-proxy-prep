@@ -439,6 +439,9 @@ def window_setup(cols):
                 print_dict["bleed_edge"], size=(6, 1), key="BLEED", enable_events=True
             ),
             sg.VerticalSeparator(),
+            sg.Button(button_text=" Select All ", size=(10, 1), key="SELECT"),
+            sg.Button(button_text=" Unselect All ", size=(10, 1), key="UNSELECT"),
+            sg.VerticalSeparator(),
             sg.Text("PDF Filename:"),
             sg.Input(
                 print_dict["filename"], size=(20, 1), key="FILENAME", enable_events=True
@@ -644,6 +647,16 @@ while True:
         window.enable()
         window.bring_to_front()
         window.refresh()
+
+    if "SELECT" in event:
+        for cardname in print_dict["cards"].keys():
+            print_dict["cards"][cardname] = 1
+            window[f"NUM:{cardname}"].update("1")
+
+    if "UNSELECT" in event:
+        for cardname in print_dict["cards"].keys():
+            print_dict["cards"][cardname] = 0
+            window[f"NUM:{cardname}"].update("0")
 
     if event and print_dict["size"] != window.size:
         print_dict["size"] = window.size
