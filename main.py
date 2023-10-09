@@ -395,16 +395,14 @@ def window_setup(cols):
                 print_dict["page_sizes"],
                 default_value=print_dict["pagesize"],
                 readonly=True,
-                key="PAPER",
-                enable_events=True
+                key="PAPER"
             ),
             sg.VerticalSeparator(),
             sg.Text("Orientation:"),
             sg.Combo(
                 ["Portrait", "Landscape"],
                 default_value=print_dict["orient"],
-                key="ORIENT",
-                enable_events=True
+                key="ORIENT"
             ),
             sg.VerticalSeparator(),
             sg.Text("Bleed Edge (mm):"),
