@@ -104,29 +104,46 @@ class CrossSegment(Enum):
     BottomRight = (-1, 1)
     BottomLeft = (1, 1)
 
+# Draws black-white dashed half-cross at `x`, `y`
+# `segment` determines which part of the cross is drawn
 def draw_half_cross(can, x, y, segment, c=6, s=1):
     (dx, dy) = segment.value
-    dash = [s, s]
+
     can.setLineWidth(s)
+    dash = [s, s]
+
+    # First layer
     can.setDash(dash)
     can.setStrokeColorRGB(255, 255, 255)
     can.line(x, y, x, y + dy * c)
+    can.setStrokeColorRGB(0, 0, 0)
     can.line(x, y, x + dx * c, y)
 
+    # Second layer with phase offset
+    can.setDash(dash, s)
+    can.setStrokeColorRGB(0, 0, 0)
+    can.line(x, y, x, y + dy * c)
+    can.setStrokeColorRGB(255, 255, 255)
+    can.line(x, y, x + dx * c, y)
 
+# Draws black-white dashed cross at `x`, `y`
 def draw_cross(can, x, y, c=6, s=1):
     dash = [s, s]
     can.setLineWidth(s)
+
+    # First layer
     can.setDash(dash)
     can.setStrokeColorRGB(255, 255, 255)
     can.line(x, y - c, x, y + c)
     can.setStrokeColorRGB(0, 0, 0)
     can.line(x - c, y, x + c, y)
+    
+    # Second layer with phase offset
     can.setDash(dash, s)
-    can.setStrokeColorRGB(255, 255, 255)
-    can.line(x - c, y, x + c, y)
     can.setStrokeColorRGB(0, 0, 0)
     can.line(x, y - c, x, y + c)
+    can.setStrokeColorRGB(255, 255, 255)
+    can.line(x - c, y, x + c, y)
 
 
 def pdf_gen(p_dict, size):
