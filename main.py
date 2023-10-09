@@ -409,7 +409,7 @@ def window_setup(cols):
             sg.VerticalSeparator(),
             sg.Text("Bleed Edge (mm):"),
             sg.Input(
-                print_dict["bleed_edge"], size=(10, 1), key="BLEED", enable_events=True
+                print_dict["bleed_edge"], size=(6, 1), key="BLEED", enable_events=True
             ),
             sg.VerticalSeparator(),
             sg.Text("PDF Filename:"),
