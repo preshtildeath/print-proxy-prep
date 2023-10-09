@@ -98,6 +98,18 @@ def grey_out(main_window):
     the_grey.refresh()
     return the_grey
 
+def read_image(path):
+    with open(path, "rb") as f:
+        bytes = bytearray(f.read())
+        numpyarray = numpy.asarray(bytes, dtype=numpy.uint8)
+        image = cv2.imdecode(numpyarray, cv2.IMREAD_UNCHANGED)
+        return image
+
+def write_image(path, image):
+    with open(path, "wb") as f:
+        _, bytes = cv2.imencode(".png", image)
+        bytes.tofile(f)
+
 class CrossSegment(Enum):
     TopLeft = (1, -1)
     TopRight = (-1, -1)
@@ -245,7 +257,7 @@ def cropper(folder, img_dict, bleed_edge):
             or os.path.exists(os.path.join(output_dir, img_file))
         ):
             continue
-        im = cv2.imread(os.path.join(folder, img_file))
+        im = read_image(os.path.join(folder, img_file))
         i += 1
         (h, w, _) = im.shape
         (bw, bh) = card_size_with_bleed_inch
@@ -278,7 +290,7 @@ def cropper(folder, img_dict, bleed_edge):
             crop_im = numpy.array(Image.fromarray(crop_im).filter(ImageFilter.UnsharpMask(1, 20, 8)))
         if cfg.getboolean("Vibrance.Bump"):
             crop_im = numpy.array(Image.fromarray(crop_im).filter(vibrance_cube))
-        cv2.imwrite(os.path.join(output_dir, img_file), crop_im)
+        write_image(os.path.join(output_dir, img_file), crop_im)
 
     if i > 0 and not has_bleed_edge:
         return cache_previews(img_cache, output_dir)
@@ -295,7 +307,7 @@ def to_bytes(file_or_bytes, resize=None):
     :return: (bytes) a byte-string object
     """
     if isinstance(file_or_bytes, str):
-        img = cv2.imread(file_or_bytes)
+        img = read_image(file_or_bytes)
     else:
         try:
             dataBytesIO = io.BytesIO(base64.b64decode(file_or_bytes))
@@ -330,7 +342,7 @@ def cache_previews(file, folder, data={}):
             continue
 
         fn = os.path.join(folder, f)
-        im = cv2.imread(fn)
+        im = read_image(fn)
         (h, w, _) = im.shape
         del im
         r = 248 / w
