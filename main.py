@@ -431,6 +431,7 @@ def window_setup(cols):
             sg.Combo(
                 ["Portrait", "Landscape"],
                 default_value=print_dict["orient"],
+                readonly=True,
                 key="ORIENT"
             ),
             sg.VerticalSeparator(),
