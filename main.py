@@ -474,7 +474,14 @@ def window_setup(cols):
         enable_close_attempted_event=True,
         size=print_dict["size"],
     )
-    
+
+    for cardname in print_dict["cards"].keys():
+        def make_number_callback(key):
+            def number_callback(var, index, mode):
+                window.write_event_value(key, window[key].TKStringVar.get())
+            return number_callback
+        window[f"NUM:{cardname}"].TKStringVar.trace("w", make_number_callback(f"NUM:{cardname}"))
+
     def make_combo_callback(key):
         def combo_callback(var, index, mode):
             window.write_event_value(key, window[key].TKStringVar.get())
@@ -573,8 +580,8 @@ while True:
 
     if event == sg.WIN_CLOSED or event == sg.WINDOW_CLOSE_ATTEMPTED_EVENT:
         break
-
-    if "ADD:" in event or "SUB:" in event or "CRD:" in event:
+    
+    def get_card_name_from_event(event):
         name = event[4:]
         if "-RIGHT" in name:
             name = name.replace("-RIGHT", "")
@@ -584,11 +591,20 @@ while True:
             e = "ADD:"
         else:
             e = event[:4]
+        return name, e
+
+    if "ADD:" in event or "SUB:" in event or "CRD:" in event:
+        name, e = get_card_name_from_event(event)
         key = "NUM:" + name
         num = int(values[key])
         num += 1 if "ADD" in e else 0 if num <= 0 else -1
         print_dict["cards"][name] = num
         window[key].update(str(num))
+
+    if "NUM:" in event:
+        name, e = get_card_name_from_event(event)
+        if is_number_string(values[event]):
+            print_dict["cards"][name] = int(values[event])
 
     if "ORIENT" in event:
         print_dict["orient"] = values[event]
