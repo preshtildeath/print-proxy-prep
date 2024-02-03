@@ -184,33 +184,35 @@ def pdf_gen(p_dict, size):
     pages = canvas.Canvas(pdf_fp, pagesize=size)
     cols, rows = int(pw // w), int(ph // h)
     rx, ry = round((pw - (w * cols)) / 2), round((ph - (h * rows)) / 2)
+    ry = ph - ry - h
     total_cards = sum(img_dict.values())
     pbreak = cols * rows
     i = 0
     for img in img_dict.keys():
         img_path = os.path.join(img_dir, img)
-        for n in range(img_dict[img]):
-            p, j = divmod(i, pbreak)
+        for _ in range(img_dict[img]):
+            _, j = divmod(i, pbreak)
             y, x = divmod(j, cols)
             if j == 0 and i > 0:
                 pages.showPage()
+
             pages.drawImage(
                 img_path,
                 x * w + rx,
-                y * h + ry,
+                ry - y * h,
                 w,
                 h,
             )
             if has_bleed_edge:
-                draw_half_cross(pages, (x + 0) * w + b + rx, (y + 0) * h + b + ry, CrossSegment.BottomLeft)
-                draw_half_cross(pages, (x + 1) * w - b + rx, (y + 0) * h + b + ry, CrossSegment.BottomRight)
-                draw_half_cross(pages, (x + 1) * w - b + rx, (y + 1) * h - b + ry, CrossSegment.TopRight)
-                draw_half_cross(pages, (x + 0) * w + b + rx, (y + 1) * h - b + ry, CrossSegment.TopLeft)
+                draw_half_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b, CrossSegment.BottomLeft)
+                draw_half_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b, CrossSegment.BottomRight)
+                draw_half_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b, CrossSegment.TopRight)
+                draw_half_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b, CrossSegment.TopLeft)
             elif j == pbreak - 1 or i == total_cards - 1:
                 # Draw lines
                 for cy in range(rows + 1):
                     for cx in range(cols + 1):
-                        draw_cross(pages, rx + w * cx, ry + h * cy)
+                        draw_cross(pages, rx + w * cx, ry - h * cy)
             i += 1
     saving_window = popup("Saving...")
     saving_window.refresh()
