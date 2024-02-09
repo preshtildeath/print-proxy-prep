@@ -110,34 +110,6 @@ def write_image(path, image):
         _, bytes = cv2.imencode(".png", image)
         bytes.tofile(f)
 
-class CrossSegment(Enum):
-    TopLeft = (1, -1)
-    TopRight = (-1, -1)
-    BottomRight = (-1, 1)
-    BottomLeft = (1, 1)
-
-# Draws black-white dashed half-cross at `x`, `y`
-# `segment` determines which part of the cross is drawn
-def draw_half_cross(can, x, y, segment, c=6, s=1):
-    (dx, dy) = segment.value
-
-    can.setLineWidth(s)
-    dash = [s, s]
-
-    # First layer
-    can.setDash(dash)
-    can.setStrokeColorRGB(255, 255, 255)
-    can.line(x, y, x, y + dy * c)
-    can.setStrokeColorRGB(0, 0, 0)
-    can.line(x, y, x + dx * c, y)
-
-    # Second layer with phase offset
-    can.setDash(dash, s)
-    can.setStrokeColorRGB(0, 0, 0)
-    can.line(x, y, x, y + dy * c)
-    can.setStrokeColorRGB(255, 255, 255)
-    can.line(x, y, x + dx * c, y)
-
 # Draws black-white dashed cross at `x`, `y`
 def draw_cross(can, x, y, c=6, s=1):
     dash = [s, s]
@@ -204,10 +176,10 @@ def pdf_gen(p_dict, size):
                 h,
             )
             if has_bleed_edge:
-                draw_half_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b, CrossSegment.BottomLeft)
-                draw_half_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b, CrossSegment.BottomRight)
-                draw_half_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b, CrossSegment.TopRight)
-                draw_half_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b, CrossSegment.TopLeft)
+                draw_cross(pages, (x + 0) * w + b + rx, ry - (y + 0) * h + b)
+                draw_cross(pages, (x + 1) * w - b + rx, ry - (y + 0) * h + b)
+                draw_cross(pages, (x + 1) * w - b + rx, ry - (y - 1) * h - b)
+                draw_cross(pages, (x + 0) * w + b + rx, ry - (y - 1) * h - b)
             elif j == pbreak - 1 or i == total_cards - 1:
                 # Draw lines
                 for cy in range(rows + 1):
