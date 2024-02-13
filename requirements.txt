@@ -1,2 +1,3 @@
 PySimpleGUI
 reportlab
+opencv-python
