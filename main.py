@@ -8,7 +8,7 @@ import configparser
 import io
 import re
 from PIL import Image, ImageFilter
-import PySimpleGUI as sg
+import FreeSimpleGUI as sg
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter, A4, legal
 
